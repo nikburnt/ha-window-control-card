@@ -1,0 +1,17 @@
+{
+  "name": "ha-window-control-card",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check dist/ha-window-control-card.js"
+  },
+  "dependencies": {
+    "lit": "3.3.1"
+  },
+  "devDependencies": {
+    "@mdi/js": "7.4.47",
+    "esbuild": "0.28.2"
+  }
+}
