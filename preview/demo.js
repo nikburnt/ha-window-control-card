@@ -55,6 +55,15 @@ window.demo = {
   setUnavailable(id) { cancel(id); states[id] = { ...states[id], state: "unavailable" }; update(); },
   setUnknown(id) { cancel(id); states[id] = { ...states[id], state: "unknown", attributes: { ...states[id].attributes, current_position: null } }; update(); },
   setError(id) { states[id].attributes.last_error = "confirmation_timeout"; update(); },
+  setEstimate(id, seconds, phase = "awaiting_confirmation") {
+    cancel(id);
+    states[id] = { ...states[id], state: "opening", attributes: {
+      ...states[id].attributes, current_position: 50, phase,
+      target_position: 100, last_error: null,
+      estimated_completion: new Date(Date.now() + seconds * 1000).toISOString(),
+    } };
+    update();
+  },
   setDark() { document.body.classList.add("dark"); },
 };
 card.setConfig({ entity: "cover.window_rollers", name: "Wide Window" });

@@ -43,14 +43,40 @@ async (page) => {
   check((await page.getByRole("alert").textContent()).includes("Command failed"), "Service failure was swallowed");
   await page.goto("http://127.0.0.1:8768/preview/");
   await page.getByRole("heading", { name: "Wide Window" }).waitFor();
+  await page.evaluate(() => window.demo.setEstimate("cover.window_right", 2));
+  const eta = page.locator(".roller").nth(2).locator(".estimate");
+  check((await eta.textContent()).includes("s left"), "No remaining-time estimate");
+  const reported = await page.locator(".shade").nth(2).getAttribute("style");
+  await page.waitForTimeout(2300);
+  check(await eta.textContent() === "Awaiting Position", "Expired estimate claimed success or disappeared");
+  check(await page.locator(".shade").nth(2).getAttribute("style") === reported, "Countdown fabricated motor progress");
+  check(await page.evaluate(() => !document.querySelector("window-control-card")._ticker), "Expired countdown leaked its timer");
+  await page.evaluate(() => window.demo.setEstimate("cover.window_right", 40, "pending"));
+  check(await eta.textContent() === "", "Pending command started countdown before dispatch");
+  await page.evaluate(() => window.demo.setEstimate("cover.window_right", 40));
+  await page.getByRole("button", { name: "Stop: Right Roller", exact: true }).click();
+  check(await eta.textContent() === "", "Stop left stale countdown visible");
+  await page.evaluate(() => window.demo.setEstimate("cover.window_right", 40));
+  await page.evaluate(() => window.demo.setError("cover.window_right"));
+  check(await eta.textContent() === "", "Failure left stale countdown visible");
+  await page.evaluate(() => {
+    window.demo.setEstimate("cover.window_right", 40);
+    const card = document.querySelector("window-control-card");
+    const parent = card.parentElement;
+    card.remove();
+    if (card._ticker) throw new Error("Detached card leaked its timer");
+    parent.append(card);
+  });
+  check(await page.evaluate(() => !!document.querySelector("window-control-card")._ticker), "Reconnected card did not resume countdown");
   await page.screenshot({ path: "output/playwright/desktop.png" });
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 850 });
     await page.evaluate(() => window.demo.setLanguage("ru"));
+    await page.evaluate(() => { window.demo.setEstimate("cover.window_left", 33); window.demo.setEstimate("cover.window_right", -1); });
     const overflow = await page.evaluate(() => {
       const card = document.querySelector("window-control-card");
       const bounds = card.getBoundingClientRect();
-      const nodes = [...card.shadowRoot.querySelectorAll("button,input,.member-name,.status,h2")];
+      const nodes = [...card.shadowRoot.querySelectorAll("button,input,.member-name,.status,.estimate,h2")];
       return nodes.filter((node) => { const r = node.getBoundingClientRect(); return r.left < bounds.left - 1 || r.right > bounds.right + 1; }).map((node) => node.outerHTML);
     });
     check(!overflow.length, `Horizontal overflow at ${width}: ${overflow.join("\n")}`);
@@ -60,5 +86,5 @@ async (page) => {
   await page.evaluate(() => { window.demo.setDark(); window.demo.setUnavailable("cover.window_center"); window.demo.setError("cover.window_right"); });
   await page.screenshot({ path: "output/playwright/dark-errors.png" });
   check(!errors.length, `Browser errors: ${errors.join("; ")}`);
-  console.log("PASS: commands, slider release, animation, unavailable/unknown/error states, RU/mobile layouts and dark mode; no browser errors");
+  console.log("PASS: commands, slider release, reported-position animation, estimated countdown/lifecycle, unavailable/unknown/error states, RU/mobile layouts and dark mode; no browser errors");
 }

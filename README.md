@@ -27,6 +27,14 @@ and unavailable values are not shown as zero. English and Russian UI are
 selected using Home Assistant's language. Themes and reduced-motion preferences
 are respected. No credentials, remote images or external CDN are used.
 
+With Window Control 0.2.0 or newer, configure opening/closing travel times in
+the integration's **Configure** flow. The card shows a separate approximate
+countdown for dispatched commands. Partial travel uses the remaining distance;
+new reports correct the estimate. At zero it shows **Awaiting Position**, not
+success. Stop, replacement, and failure discard the previous estimate. Timers
+run only while needed and stop when the card is removed. Older integration
+versions remain supported without the countdown.
+
 ## Development
 
 Run `npm ci`, `npm run build`, and `npm run check`. Open `preview/index.html`

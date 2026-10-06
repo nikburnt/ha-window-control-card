@@ -9,6 +9,10 @@ const position = (state) => {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? Math.round(value) : null;
 };
 const available = (state) => !!state && state.state !== "unavailable";
+const TIMING_WORDS = {
+  en: { estimated: "Estimated Time Remaining", seconds: "s left", waiting: "Awaiting Position" },
+  ru: { estimated: "Оценка Оставшегося Времени", seconds: "с осталось", waiting: "Ждём Позицию" },
+};
 
 class WindowControlCard extends LitElement {
   static properties = { hass: { attribute: false }, config: { state: true }, mode: { state: true }, error: { state: true }, drafts: { state: true } };
@@ -32,6 +36,43 @@ class WindowControlCard extends LitElement {
   getCardSize() { return 6; }
   getGridOptions() { return { columns: 12, rows: 7, min_columns: 6, min_rows: 6 }; }
   get words() { return WORDS[this.hass?.language?.startsWith("ru") ? "ru" : "en"]; }
+  get timingWords() { return TIMING_WORDS[this.hass?.language?.startsWith("ru") ? "ru" : "en"]; }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._ticker);
+    this._ticker = undefined;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.requestUpdate();
+  }
+
+  updated() {
+    const members = this.hass?.states[this.config?.entity]?.attributes?.members || [];
+    const counting = this.isConnected && members.some((member) => this.estimate(member) > 0);
+    if (counting && !this._ticker) this._ticker = setInterval(() => this.requestUpdate(), 1000);
+    if (!counting && this._ticker) {
+      clearInterval(this._ticker);
+      this._ticker = undefined;
+    }
+  }
+
+  estimate(member) {
+    const state = this.hass.states[member.entity_id];
+    const attrs = state?.attributes;
+    if (!available(state) || state.state === "unknown" || attrs.last_error || member.error
+      || !["sending", "awaiting_confirmation"].includes(attrs.phase)
+      || typeof attrs.target_position !== "number" || !attrs.estimated_completion) return null;
+    const end = Date.parse(attrs.estimated_completion);
+    return Number.isFinite(end) ? Math.max(0, Math.ceil((end - Date.now()) / 1000)) : null;
+  }
+
+  remaining(member) {
+    const seconds = this.estimate(member);
+    return html`<span class="estimate" title=${this.timingWords.estimated} aria-live="off">${seconds === null ? nothing : seconds > 0 ? `~${seconds} ${this.timingWords.seconds}` : this.timingWords.waiting}</span>`;
+  }
 
   async command(entity, action, data = {}) {
     if (!entity || !this.hass) return;
@@ -119,10 +160,11 @@ class WindowControlCard extends LitElement {
         ${rollers.map((member) => html`<section class="roller">
           <div class="member-name">${this.label(member)}</div>
           <div class="status ${member.error || this.hass.states[member.entity_id]?.attributes.last_error || !available(this.hass.states[member.entity_id]) ? "problem" : ""}" title=${this.status(member)} aria-live="polite">${this.drafts[member.entity_id] === undefined ? this.status(member) : `${this.drafts[member.entity_id]}%`}</div>
+          ${this.remaining(member)}
           ${this.slider(member)}${this.controls(member)}
         </section>`)}
       </div>
-      ${curtain ? html`<section class="curtain"><div class="curtain-header"><div class="curtain-title"><ha-icon icon="mdi:curtains"></ha-icon><span class="member-name">${this.label(curtain)}</span></div><span class="status ${!available(curtainState) || curtain.error ? "problem" : ""}" aria-live="polite">${this.drafts[curtain.entity_id] === undefined ? this.status(curtain) : `${this.drafts[curtain.entity_id]}%`}</span></div><div class="curtain-control">${this.slider(curtain)}${this.controls(curtain)}</div></section>` : nothing}
+      ${curtain ? html`<section class="curtain"><div class="curtain-header"><div class="curtain-title"><ha-icon icon="mdi:curtains"></ha-icon><span class="member-name">${this.label(curtain)}</span></div><div class="curtain-status"><span class="status ${!available(curtainState) || curtain.error ? "problem" : ""}" aria-live="polite">${this.drafts[curtain.entity_id] === undefined ? this.status(curtain) : `${this.drafts[curtain.entity_id]}%`}</span>${this.remaining(curtain)}</div></div><div class="curtain-control">${this.slider(curtain)}${this.controls(curtain)}</div></section>` : nothing}
       ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : nothing}
     </ha-card>`;
   }
@@ -163,6 +205,8 @@ class WindowControlCard extends LitElement {
     .member-name { font-size:12px; line-height:1.35; font-weight:600; overflow-wrap:anywhere; min-height:32px; display:flex; align-items:center; justify-content:center; }
     .status { display:block; font-size:12px; line-height:1.5; color:var(--secondary-text-color,#6e7773); overflow-wrap:anywhere; min-height:18px; }
     .roller .status { height:36px; display:flex; align-items:center; justify-content:center; }
+    .estimate { display:block; min-height:32px; font-size:11px; line-height:16px; color:var(--secondary-text-color,#6e7773); overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+    .curtain-status { min-width:0; text-align:right; }
     .problem,.error { color:var(--error-color,#b83e39); }
     .position { display:block; width:100%; min-width:0; height:28px; margin:5px 0; accent-color:var(--primary-color,#287a65); cursor:pointer; }
     .position:disabled { cursor:default; opacity:.4; }
