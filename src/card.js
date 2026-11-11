@@ -1,8 +1,8 @@
 import { LitElement, html, css, nothing } from "lit";
 
 const WORDS = {
-  en: { all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window Control is unavailable", title: "Window", entity: "Roller group", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable" },
-  ru: { all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Window Control недоступен", title: "Окно", entity: "Группа рулонных штор", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна" },
+  en: { all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", up: "Up", down: "Down", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window controls are unavailable", title: "Window", entity: "Roller group", roller_blueprint: "Roller group blueprint", all_blueprint: "Whole-window blueprint", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable", group_unavailable: "Group command is not configured" },
+  ru: { all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", up: "Вверх", down: "Вниз", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Управление окном недоступно", title: "Окно", entity: "Группа рулонных штор", roller_blueprint: "Блупринт рулонных штор", all_blueprint: "Блупринт всего окна", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна", group_unavailable: "Групповая команда не настроена" },
 };
 const position = (state) => {
   const value = state?.attributes?.current_position;
@@ -25,13 +25,24 @@ class WindowControlCard extends LitElement {
   }
 
   setConfig(config) {
-    if (!config.entity?.startsWith("cover.")) throw new Error("A Window Control roller group entity is required");
+    if (config.rollers !== undefined) {
+      if (!Array.isArray(config.rollers) || config.rollers.some((id) => typeof id !== "string" || !id.startsWith("cover."))
+        || new Set(config.rollers).size !== config.rollers.length) throw new Error("Select unique roller cover entities");
+      if (config.curtain && (typeof config.curtain !== "string" || !config.curtain.startsWith("cover.") || config.rollers.includes(config.curtain))) throw new Error("Select a separate curtain cover entity");
+    } else if (!config.entity?.startsWith("cover.")) throw new Error("Roller cover entities or a legacy Window Control group are required");
     this.config = { ...config };
   }
 
   static getConfigElement() { return document.createElement("window-control-card-editor"); }
   static getStubConfig(hass) {
-    return { entity: Object.values(hass.states).find((state) => state.attributes?.window_control)?.entity_id ?? "" };
+    const legacy = Object.values(hass.states).find((state) => state.attributes?.window_control)?.entity_id;
+    return legacy ? { entity: legacy } : { rollers: [] };
+  }
+  get native() { return Array.isArray(this.config?.rollers); }
+  get members() {
+    if (!this.native) return this.hass?.states[this.config?.entity]?.attributes?.members || [];
+    return [...this.config.rollers.map((entity_id) => ({ entity_id, role: "roller" })),
+      ...(this.config.curtain ? [{ entity_id: this.config.curtain, role: "curtain" }] : [])];
   }
   getCardSize() { return 6; }
   getGridOptions() { return { columns: 12, rows: 7, min_columns: 6, min_rows: 6 }; }
@@ -50,7 +61,7 @@ class WindowControlCard extends LitElement {
   }
 
   updated() {
-    const members = this.hass?.states[this.config?.entity]?.attributes?.members || [];
+    const members = this.members;
     const counting = this.isConnected && members.some((member) => this.estimate(member) > 0);
     if (counting && !this._ticker) this._ticker = setInterval(() => this.requestUpdate(), 1000);
     if (!counting && this._ticker) {
@@ -84,14 +95,26 @@ class WindowControlCard extends LitElement {
     }
   }
 
-  groupCommand(action) {
+  async groupCommand(action) {
+    if (this.native) {
+      const blueprintId = this.config[this.mode === "all" ? "all_blueprint" : "roller_blueprint"];
+      if (!blueprintId) { this.error = this.words.group_unavailable; return; }
+      this.error = "";
+      try {
+        const result = await this.hass.callWS({ type: "visual_logic/run", blueprintId,
+          entryId: `start:${{ open: "up", close: "down", stop: "stop" }[action]}` });
+        if (result.status && result.status !== "accepted") throw new Error(result.error?.message || result.reason || result.status);
+      } catch (error) { this.error = error.message || String(error); }
+      return;
+    }
     const group = this.hass.states[this.config.entity];
     if (this.mode === "all") return this.command(group?.attributes?.all_controls?.[action], "press");
-    return this.command(this.config.entity, `${action}_cover`);
+    return action === "stop" ? this.command(this.config.entity, "stop_cover")
+      : this.command(this.config.entity, "set_cover_position", { position: action === "open" ? 100 : 0 });
   }
 
-  iconButton(action, click, disabled = false, suffix = "", active = false) {
-    const label = `${this.words[action]}${suffix ? `: ${suffix}` : ""}`;
+  iconButton(action, click, disabled = false, suffix = "", active = false, labelAction = action) {
+    const label = `${this.words[labelAction]}${suffix ? `: ${suffix}` : ""}`;
     const icon = { open: "mdi:arrow-up", stop: "mdi:stop", close: "mdi:arrow-down" }[action];
     return html`<button class="icon ${active ? "active" : ""}" type="button" title=${label} aria-label=${label} ?disabled=${disabled} @click=${click}><ha-icon .icon=${icon}></ha-icon></button>`;
   }
@@ -127,14 +150,18 @@ class WindowControlCard extends LitElement {
 
   controls(member) {
     const state = this.hass.states[member.entity_id];
-    return html`<div class="member-actions">${["open", "stop", "close"].map((action) => this.iconButton(action, () => this.command(member.entity_id, `${action}_cover`), !available(state), this.label(member), state?.state === (action === "open" ? "opening" : action === "close" ? "closing" : "never")))}</div>`;
+    return html`<div class="member-actions">${["open", "stop", "close"].map((action) => this.iconButton(action,
+      () => member.role === "roller" && action !== "stop"
+        ? this.command(member.entity_id, "set_cover_position", { position: action === "open" ? 100 : 0 })
+        : this.command(member.entity_id, `${action}_cover`),
+      !available(state), this.label(member), state?.state === (action === "open" ? "opening" : action === "close" ? "closing" : "never")))}</div>`;
   }
 
   render() {
     if (!this.config || !this.hass) return nothing;
     const group = this.hass.states[this.config.entity];
-    if (!group?.attributes?.window_control) return html`<ha-card><div class="missing" role="status">${this.words.missing}</div></ha-card>`;
-    const members = group.attributes.members || [];
+    if ((!this.native && !group?.attributes?.window_control) || !this.members.length) return html`<ha-card><div class="missing" role="status">${this.words.missing}</div></ha-card>`;
+    const members = this.members;
     const rollers = members.filter((m) => m.role === "roller");
     const curtain = members.find((m) => m.role === "curtain");
     const curtainState = curtain && this.hass.states[curtain.entity_id];
@@ -148,7 +175,9 @@ class WindowControlCard extends LitElement {
           ${["all", "rollers"].map((mode) => html`<button type="button" class=${this.mode === mode ? "selected" : ""} aria-pressed=${String(this.mode === mode)} @click=${() => { this.mode = mode; }}>${this.words[mode]}</button>`)}
         </div>
       </header>
-      <div class="toolbar"><span class="scope">${this.words[this.mode]}</span><div class="global-actions">${["open", "stop", "close"].map((action) => this.iconButton(action, () => this.groupCommand(action), allOffline || (this.mode === "all" && !group.attributes.all_controls?.[action]), this.words[this.mode]))}</div></div>
+      <div class="toolbar"><span class="scope">${this.words[this.mode]}</span><div class="global-actions">${["open", "stop", "close"].map((action) => this.iconButton(action, () => this.groupCommand(action),
+        allOffline || (this.native ? !this.config[this.mode === "all" ? "all_blueprint" : "roller_blueprint"] : this.mode === "all" && !group.attributes.all_controls?.[action]),
+        this.words[this.mode], false, this.native ? ({ open: "up", close: "down" }[action] || action) : action))}</div></div>
       <div class="window" style=${columnStyle} aria-hidden="true">
         ${rollers.map((m) => {
           const state = this.hass.states[m.entity_id]; const value = position(state);
@@ -224,12 +253,31 @@ class WindowControlCard extends LitElement {
 }
 
 class WindowControlCardEditor extends LitElement {
-  static properties = { hass: { attribute: false }, config: { state: true } };
+  static properties = { hass: { attribute: false }, config: { state: true }, blueprints: { state: true } };
   setConfig(config) { this.config = { ...config }; }
+  updated() {
+    if (!this.hass?.callWS || this._loaded) return;
+    this._loaded = true;
+    this.hass.callWS({ type: "visual_logic/blueprint/list" }).then((result) => {
+      this.blueprints = result.blueprints.map((b) => ({ value: b.id, label: b.title }));
+    }).catch(() => { this.blueprints = []; });
+  }
   render() {
     if (!this.hass || !this.config) return nothing;
     const words = WORDS[this.hass.language?.startsWith("ru") ? "ru" : "en"];
-    const schema = [{ name: "entity", required: true, selector: { entity: { domain: "cover", integration: "window_control" } } }, { name: "name", selector: { text: {} } }];
+    const native = Array.isArray(this.config.rollers) || !this.config.entity;
+    const choices = (key) => {
+      const items = [...(this.blueprints || [])];
+      if (this.config[key] && !items.some((item) => item.value === this.config[key])) items.push({ value: this.config[key], label: this.config[key] });
+      return { select: { options: items, mode: "dropdown" } };
+    };
+    const schema = [...(native ? [
+      { name: "rollers", required: true, selector: { entity: { domain: "cover", multiple: true } } },
+      { name: "curtain", selector: { entity: { domain: "cover" } } },
+      { name: "roller_blueprint", selector: choices("roller_blueprint") },
+      { name: "all_blueprint", selector: choices("all_blueprint") },
+    ] : [{ name: "entity", required: true, selector: { entity: { domain: "cover", integration: "window_control" } } }]),
+      { name: "name", selector: { text: {} } }];
     return html`<ha-form .hass=${this.hass} .data=${this.config} .schema=${schema} .computeLabel=${(field) => words[field.name]} @value-changed=${(event) => {
       event.stopPropagation();
       this.config = { type: "custom:window-control-card", ...event.detail.value };

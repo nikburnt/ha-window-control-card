@@ -17,7 +17,7 @@ states["cover.window_rollers"] = { entity_id: "cover.window_rollers", state: "op
 const calls = [];
 const jobs = new Map();
 let language = "en";
-function update() { card.hass = { states: { ...states }, language, callService }; }
+function update() { card.hass = { states: { ...states }, language, callService, callWS }; }
 function cancel(id) { clearTimeout(jobs.get(id)?.timer); clearInterval(jobs.get(id)?.interval); jobs.delete(id); }
 function move(id, target, delay = 0) {
   if (states[id].state === "unavailable") return;
@@ -49,8 +49,26 @@ async function callService(domain, service, data) {
   }
   update();
 }
+async function callWS(message) {
+  if (message.type === "visual_logic/blueprint/list") return { blueprints: [
+    { id: "demo-window-rollers", title: "Roller Cascade" }, { id: "demo-window-all", title: "Whole Window" },
+  ] };
+  if (message.type !== "visual_logic/run") throw new Error("Unsupported simulated request");
+  calls.push({ domain: "visual_logic", service: "run", ...message });
+  if (window.demo.failNext) { window.demo.failNext = false; throw new Error("Command failed"); }
+  if (window.demo.rejectNext) { window.demo.rejectNext = false; return { status: "rejected", error: { message: "Group is disabled" } }; }
+  const selected = message.blueprintId === "demo-window-all" ? ids : ids.slice(0, 3);
+  const action = message.entryId.split(":").at(-1);
+  for (const [index, id] of selected.entries()) {
+    if (action === "stop") { cancel(id); states[id].state = states[id].attributes.current_position ? "open" : "closed"; states[id].attributes.phase = "idle"; }
+    else move(id, action === "up" ? 100 : 0, index < 3 ? index * 700 : 0);
+  }
+  update();
+  return { status: "accepted", runId: "demo-only" };
+}
 window.demo = {
-  calls, failNext: false,
+  calls, failNext: false, rejectNext: false,
+  setLegacy() { card.setConfig({ entity: "cover.window_rollers", name: "Wide Window" }); update(); },
   setLanguage(value) { language = value; update(); },
   setUnavailable(id) { cancel(id); states[id] = { ...states[id], state: "unavailable" }; update(); },
   setUnknown(id) { cancel(id); states[id] = { ...states[id], state: "unknown", attributes: { ...states[id].attributes, current_position: null } }; update(); },
@@ -66,5 +84,6 @@ window.demo = {
   },
   setDark() { document.body.classList.add("dark"); },
 };
-card.setConfig({ entity: "cover.window_rollers", name: "Wide Window" });
+card.setConfig({ rollers: ids.slice(0, 3), curtain: ids[3], name: "Wide Window",
+  roller_blueprint: "demo-window-rollers", all_blueprint: "demo-window-all" });
 update();
