@@ -21,7 +21,12 @@ rollers:
 curtain: cover.window_curtain
 roller_blueprint: window-rollers
 all_blueprint: window-all
+curtain_opening: right-to-left
 ```
+
+`curtain_opening: right-to-left` draws a curtain that opens from the right edge
+and gathers on the left. The default `center` preserves the two-panel drawing.
+This setting changes only the picture; positions and device commands are unchanged.
 
 All/Roller Shades selects the scope of the top action buttons. The configured
 blueprints must expose signal starts named `up`, `down`, and `stop`. Group

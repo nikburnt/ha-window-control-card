@@ -1,8 +1,9 @@
 import { LitElement, html, css, nothing } from "lit";
+import { curtainPanels } from "./curtain.js";
 
 const WORDS = {
-  en: { all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", up: "Up", down: "Down", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window controls are unavailable", title: "Window", entity: "Roller group", roller_blueprint: "Roller group blueprint", all_blueprint: "Whole-window blueprint", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable", group_unavailable: "Group command is not configured" },
-  ru: { all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", up: "Вверх", down: "Вниз", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Управление окном недоступно", title: "Окно", entity: "Группа рулонных штор", roller_blueprint: "Блупринт рулонных штор", all_blueprint: "Блупринт всего окна", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна", group_unavailable: "Групповая команда не настроена" },
+  en: { curtain_opening: "Curtain Opening", center: "From Center", right_to_left: "Right To Left", all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", up: "Up", down: "Down", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window controls are unavailable", title: "Window", entity: "Roller group", roller_blueprint: "Roller group blueprint", all_blueprint: "Whole-window blueprint", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable", group_unavailable: "Group command is not configured" },
+  ru: { curtain_opening: "Открывание шторы", center: "Из центра", right_to_left: "Справа налево", all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", up: "Вверх", down: "Вниз", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Управление окном недоступно", title: "Окно", entity: "Группа рулонных штор", roller_blueprint: "Блупринт рулонных штор", all_blueprint: "Блупринт всего окна", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна", group_unavailable: "Групповая команда не настроена" },
 };
 const position = (state) => {
   const value = state?.attributes?.current_position;
@@ -25,6 +26,7 @@ class WindowControlCard extends LitElement {
   }
 
   setConfig(config) {
+    if (config.curtain_opening !== undefined && !["center", "right-to-left"].includes(config.curtain_opening)) throw new Error("Choose a supported curtain opening direction");
     if (config.rollers !== undefined) {
       if (!Array.isArray(config.rollers) || config.rollers.some((id) => typeof id !== "string" || !id.startsWith("cover."))
         || new Set(config.rollers).size !== config.rollers.length) throw new Error("Select unique roller cover entities");
@@ -166,7 +168,7 @@ class WindowControlCard extends LitElement {
     const curtain = members.find((m) => m.role === "curtain");
     const curtainState = curtain && this.hass.states[curtain.entity_id];
     const curtainPosition = position(curtainState);
-    const curtainWidth = curtainPosition === null || !available(curtainState) ? 0 : (100 - curtainPosition) / 2;
+    const panels = curtainPanels(available(curtainState) ? curtainPosition : null, this.config.curtain_opening);
     const allOffline = !(this.mode === "rollers" ? rollers : members).some((m) => available(this.hass.states[m.entity_id]));
     const columnStyle = `--columns:${Math.max(rollers.length, 1)}`;
     return html`<ha-card>
@@ -183,7 +185,7 @@ class WindowControlCard extends LitElement {
           const state = this.hass.states[m.entity_id]; const value = position(state);
           return html`<div class="pane ${!available(state) || value === null ? "unknown" : ""}"><div class="shade" style=${`height:${value === null ? 100 : 100 - value}%`}></div><div class="rail"></div></div>`;
         })}
-        ${curtain ? html`<div class="drape left" style=${`width:${curtainWidth}%`}></div><div class="drape right" style=${`width:${curtainWidth}%`}></div>` : nothing}
+        ${curtain ? panels.map(panel => html`<div class=${`drape ${panel.side}`} style=${`width:${panel.width}%`}></div>`) : nothing}
       </div>
       <div class="rollers" style=${columnStyle}>
         ${rollers.map((member) => html`<section class="roller">
@@ -274,6 +276,7 @@ class WindowControlCardEditor extends LitElement {
     const schema = [...(native ? [
       { name: "rollers", required: true, selector: { entity: { domain: "cover", multiple: true } } },
       { name: "curtain", selector: { entity: { domain: "cover" } } },
+      { name: "curtain_opening", selector: { select: { options: [{ value: "center", label: words.center }, { value: "right-to-left", label: words.right_to_left }], mode: "dropdown" } } },
       { name: "roller_blueprint", selector: choices("roller_blueprint") },
       { name: "all_blueprint", selector: choices("all_blueprint") },
     ] : [{ name: "entity", required: true, selector: { entity: { domain: "cover", integration: "window_control" } } }]),

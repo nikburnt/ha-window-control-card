@@ -85,5 +85,6 @@ window.demo = {
   setDark() { document.body.classList.add("dark"); },
 };
 card.setConfig({ rollers: ids.slice(0, 3), curtain: ids[3], name: "Wide Window",
+  curtain_opening: new URLSearchParams(location.search).get("curtain_opening") || "center",
   roller_blueprint: "demo-window-rollers", all_blueprint: "demo-window-all" });
 update();
