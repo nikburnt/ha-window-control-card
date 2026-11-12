@@ -86,5 +86,6 @@ window.demo = {
 };
 card.setConfig({ rollers: ids.slice(0, 3), curtain: ids[3], name: "Wide Window",
   curtain_opening: new URLSearchParams(location.search).get("curtain_opening") || "center",
+  position_display: new URLSearchParams(location.search).get("position_display") || "open",
   roller_blueprint: "demo-window-rollers", all_blueprint: "demo-window-all" });
 update();

@@ -1,9 +1,10 @@
 import { LitElement, html, css, nothing } from "lit";
 import { curtainPanels } from "./curtain.js";
+import { closurePercentage } from "./position.js";
 
 const WORDS = {
-  en: { curtain_opening: "Curtain Opening", center: "From Center", right_to_left: "Right To Left", all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", up: "Up", down: "Down", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window controls are unavailable", title: "Window", entity: "Roller group", roller_blueprint: "Roller group blueprint", all_blueprint: "Whole-window blueprint", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable", group_unavailable: "Group command is not configured" },
-  ru: { curtain_opening: "Открывание шторы", center: "Из центра", right_to_left: "Справа налево", all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", up: "Вверх", down: "Вниз", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Управление окном недоступно", title: "Окно", entity: "Группа рулонных штор", roller_blueprint: "Блупринт рулонных штор", all_blueprint: "Блупринт всего окна", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна", group_unavailable: "Групповая команда не настроена" },
+  en: { closure: "Closure", closed: "Closed", position_display: "Percentage Display", open_percentage: "Opening", closed_percentage: "Closure", curtain_opening: "Curtain Opening", center: "From Center", right_to_left: "Right To Left", all: "All", rollers: "Roller Shades", open: "Open", close: "Close", stop: "Stop", up: "Up", down: "Down", curtain: "Curtain", unknown: "Unknown", offline: "Unavailable", pending: "Pending", sending: "Sending", awaiting_confirmation: "In Progress", error: "Failed", position: "Opening", missing: "Window controls are unavailable", title: "Window", entity: "Roller group", roller_blueprint: "Roller group blueprint", all_blueprint: "Whole-window blueprint", name: "Name", confirmation_timeout: "Position not confirmed", unavailable: "Unavailable", group_unavailable: "Group command is not configured" },
+  ru: { closure: "Закрытие", closed: "Закрыто", position_display: "Отображение процентов", open_percentage: "Открытия", closed_percentage: "Закрытия", curtain_opening: "Открывание шторы", center: "Из центра", right_to_left: "Справа налево", all: "Всё", rollers: "Рулонные", open: "Открыть", close: "Закрыть", stop: "Стоп", up: "Вверх", down: "Вниз", curtain: "Штора", unknown: "Неизвестно", offline: "Недоступна", pending: "Ожидание", sending: "Команда", awaiting_confirmation: "Выполняется", error: "Ошибка", position: "Открытие", missing: "Управление окном недоступно", title: "Окно", entity: "Группа рулонных штор", roller_blueprint: "Блупринт рулонных штор", all_blueprint: "Блупринт всего окна", name: "Название", confirmation_timeout: "Позиция не подтверждена", unavailable: "Недоступна", group_unavailable: "Групповая команда не настроена" },
 };
 const position = (state) => {
   const value = state?.attributes?.current_position;
@@ -27,6 +28,7 @@ class WindowControlCard extends LitElement {
 
   setConfig(config) {
     if (config.curtain_opening !== undefined && !["center", "right-to-left"].includes(config.curtain_opening)) throw new Error("Choose a supported curtain opening direction");
+    if (config.position_display !== undefined && !["open", "closed"].includes(config.position_display)) throw new Error("Choose opening or closure percentage");
     if (config.rollers !== undefined) {
       if (!Array.isArray(config.rollers) || config.rollers.some((id) => typeof id !== "string" || !id.startsWith("cover."))
         || new Set(config.rollers).size !== config.rollers.length) throw new Error("Select unique roller cover entities");
@@ -41,6 +43,7 @@ class WindowControlCard extends LitElement {
     return legacy ? { entity: legacy } : { rollers: [] };
   }
   get native() { return Array.isArray(this.config?.rollers); }
+  get closedScale() { return this.config?.position_display === "closed"; }
   get members() {
     if (!this.native) return this.hass?.states[this.config?.entity]?.attributes?.members || [];
     return [...this.config.rollers.map((entity_id) => ({ entity_id, role: "roller" })),
@@ -125,6 +128,10 @@ class WindowControlCard extends LitElement {
     return this.hass.states[member.entity_id]?.attributes?.friendly_name || member.entity_id || this.words.unknown;
   }
 
+  positionStatus(value) {
+    return this.closedScale ? `${this.words.closed}: ${value}%` : `${value}%`;
+  }
+
   status(member) {
     const state = this.hass.states[member.entity_id];
     if (!available(state)) return this.words.offline;
@@ -133,20 +140,21 @@ class WindowControlCard extends LitElement {
     const phase = state.attributes.phase || member.phase;
     if (phase && phase !== "idle") return this.words[phase] || phase;
     const value = position(state);
-    return value === null ? this.words.unknown : `${value}%`;
+    return value === null ? this.words.unknown : this.positionStatus(this.closedScale ? closurePercentage(value) : value);
   }
 
   slider(member) {
     const state = this.hass.states[member.entity_id];
-    const value = this.drafts[member.entity_id] ?? position(state) ?? 50;
+    const reported = position(state);
+    const value = this.drafts[member.entity_id] ?? (this.closedScale ? closurePercentage(reported) : reported) ?? 50;
     return html`<input class="position" type="range" min="0" max="100" step="1"
-      aria-label=${`${this.words.position}: ${this.label(member)}`} aria-valuetext=${position(state) === null && this.drafts[member.entity_id] === undefined ? this.words.unknown : `${value}%`}
+      aria-label=${`${this.closedScale ? this.words.closure : this.words.position}: ${this.label(member)}`} aria-valuetext=${reported === null && this.drafts[member.entity_id] === undefined ? this.words.unknown : this.positionStatus(value)}
       .value=${String(value)} ?disabled=${!available(state)}
       @input=${(event) => { this.drafts = { ...this.drafts, [member.entity_id]: Number(event.target.value) }; }}
       @change=${(event) => {
         const target = Number(event.target.value);
         const next = { ...this.drafts }; delete next[member.entity_id]; this.drafts = next;
-        this.command(member.entity_id, "set_cover_position", { position: target });
+        this.command(member.entity_id, "set_cover_position", { position: this.closedScale ? closurePercentage(target) : target });
       }} />`;
   }
 
@@ -190,12 +198,12 @@ class WindowControlCard extends LitElement {
       <div class="rollers" style=${columnStyle}>
         ${rollers.map((member) => html`<section class="roller">
           <div class="member-name">${this.label(member)}</div>
-          <div class="status ${member.error || this.hass.states[member.entity_id]?.attributes.last_error || !available(this.hass.states[member.entity_id]) ? "problem" : ""}" title=${this.status(member)} aria-live="polite">${this.drafts[member.entity_id] === undefined ? this.status(member) : `${this.drafts[member.entity_id]}%`}</div>
+          <div class="status ${member.error || this.hass.states[member.entity_id]?.attributes.last_error || !available(this.hass.states[member.entity_id]) ? "problem" : ""}" title=${this.status(member)} aria-live="polite">${this.drafts[member.entity_id] === undefined ? this.status(member) : this.positionStatus(this.drafts[member.entity_id])}</div>
           ${this.remaining(member)}
           ${this.slider(member)}${this.controls(member)}
         </section>`)}
       </div>
-      ${curtain ? html`<section class="curtain"><div class="curtain-header"><div class="curtain-title"><ha-icon icon="mdi:curtains"></ha-icon><span class="member-name">${this.label(curtain)}</span></div><div class="curtain-status"><span class="status ${!available(curtainState) || curtain.error ? "problem" : ""}" aria-live="polite">${this.drafts[curtain.entity_id] === undefined ? this.status(curtain) : `${this.drafts[curtain.entity_id]}%`}</span>${this.remaining(curtain)}</div></div><div class="curtain-control">${this.slider(curtain)}${this.controls(curtain)}</div></section>` : nothing}
+      ${curtain ? html`<section class="curtain"><div class="curtain-header"><div class="curtain-title"><ha-icon icon="mdi:curtains"></ha-icon><span class="member-name">${this.label(curtain)}</span></div><div class="curtain-status"><span class="status ${!available(curtainState) || curtain.error ? "problem" : ""}" aria-live="polite">${this.drafts[curtain.entity_id] === undefined ? this.status(curtain) : this.positionStatus(this.drafts[curtain.entity_id])}</span>${this.remaining(curtain)}</div></div><div class="curtain-control">${this.slider(curtain)}${this.controls(curtain)}</div></section>` : nothing}
       ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : nothing}
     </ha-card>`;
   }
@@ -276,6 +284,7 @@ class WindowControlCardEditor extends LitElement {
     const schema = [...(native ? [
       { name: "rollers", required: true, selector: { entity: { domain: "cover", multiple: true } } },
       { name: "curtain", selector: { entity: { domain: "cover" } } },
+      { name: "position_display", selector: { select: { options: [{ value: "open", label: words.open_percentage }, { value: "closed", label: words.closed_percentage }], mode: "dropdown" } } },
       { name: "curtain_opening", selector: { select: { options: [{ value: "center", label: words.center }, { value: "right-to-left", label: words.right_to_left }], mode: "dropdown" } } },
       { name: "roller_blueprint", selector: choices("roller_blueprint") },
       { name: "all_blueprint", selector: choices("all_blueprint") },

@@ -104,6 +104,15 @@ async (page) => {
   await page.setViewportSize({ width: 390, height: 850 });
   await page.evaluate(() => { window.demo.setDark(); window.demo.setUnavailable("cover.window_center"); window.demo.setError("cover.window_right"); });
   await page.screenshot({ path: "output/playwright/dark-errors.png" });
+  await page.goto("http://127.0.0.1:8768/preview/?curtain_opening=right-to-left&position_display=closed");
+  await page.getByRole("heading", { name: "Wide Window" }).waitFor();
+  const closedSlider = page.getByRole("slider", { name: "Closure: Right Roller", exact: true });
+  check(await closedSlider.inputValue() === "85", "15 percent open was not shown as 85 percent closed");
+  await closedSlider.evaluate((node) => { node.value = "60"; node.dispatchEvent(new Event("input", { bubbles: true })); });
+  check(await page.evaluate(() => window.demo.calls.length) === 0, "Closure slider sent a command before release");
+  await closedSlider.evaluate((node) => node.dispatchEvent(new Event("change", { bubbles: true })));
+  calls = await page.evaluate(() => window.demo.calls);
+  check(calls.length === 1 && calls[0].service === "set_cover_position" && calls[0].position === 40, "60 percent closed did not send native position 40 exactly once");
   check(!errors.length, `Browser errors: ${errors.join("; ")}`);
-  console.log("PASS: native/legacy groups, percentage Open/Close, separate Stop, rejected admission, slider release, reported positions, countdown/lifecycle, unavailable/unknown/errors and RU/mobile layouts; no browser errors or physical devices");
+  console.log("PASS: native/legacy groups, percentage Open/Close, closure slider conversion/release, separate Stop, rejected admission, reported positions, countdown/lifecycle, unavailable/unknown/errors and RU/mobile layouts; no browser errors or physical devices");
 }

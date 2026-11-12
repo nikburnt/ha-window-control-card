@@ -22,11 +22,18 @@ curtain: cover.window_curtain
 roller_blueprint: window-rollers
 all_blueprint: window-all
 curtain_opening: right-to-left
+position_display: closed
 ```
 
 `curtain_opening: right-to-left` draws a curtain that opens from the right edge
 and gathers on the left. The default `center` preserves the two-panel drawing.
 This setting changes only the picture; positions and device commands are unchanged.
+
+`position_display: closed` shows the closed percentage in the labels and sliders:
+100% is fully closed and 0% fully open. Slider targets convert back to Home
+Assistant's opening scale before sending one final command. The default `open`
+keeps Home Assistant's opening percentage. Open/Close buttons and Stop retain
+their native semantics in either display mode.
 
 All/Roller Shades selects the scope of the top action buttons. The configured
 blueprints must expose signal starts named `up`, `down`, and `stop`. Group
